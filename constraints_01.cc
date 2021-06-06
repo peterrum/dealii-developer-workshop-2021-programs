@@ -1,6 +1,9 @@
+#include <deal.II/base/conditional_ostream.h>
+
 #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_q.h>
 
@@ -43,6 +46,10 @@ main(int argc, char **argv)
 
   const int dim = 2;
 
+  ConditionalOStream pcout(std::cout,
+                           Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) ==
+                             0);
+
   parallel::distributed::Triangulation<dim> tria(MPI_COMM_WORLD);
   GridGenerator::subdivided_hyper_cube(tria, 2);
 
@@ -71,7 +78,15 @@ main(int argc, char **argv)
   const auto all_constraints = Utilities::MPI::all_gather(
     MPI_COMM_WORLD, collect_lines(constraints, dof_handler.n_dofs()));
 
-  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-    for (const auto i : all_constraints)
-      i.print(std::cout);
+  for (const auto i : all_constraints)
+    i.print(pcout);
+
+  IndexSet locally_active_dofs;
+  DoFTools::extract_locally_active_dofs(dof_handler, locally_active_dofs);
+  if (constraints.is_consistent_in_parallel(
+        Utilities::MPI::all_gather(MPI_COMM_WORLD,
+                                   dof_handler.locally_owned_dofs()),
+        locally_active_dofs,
+        MPI_COMM_WORLD))
+    pcout << "fail :(" << std::endl;
 }
