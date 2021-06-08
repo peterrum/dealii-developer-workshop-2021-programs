@@ -28,6 +28,7 @@ public:
   DataOutResample(const Triangulation<patch_dim, spacedim> &tria,
                   const Mapping<patch_dim, spacedim> &      mapping)
     : tria(tria)
+    , dof_handler_patch(tria)
     , mapping(mapping)
   {}
 
@@ -37,67 +38,72 @@ public:
   {
     data_out.clear();
 
-    DoFHandler<patch_dim, spacedim> dof_handler_patch(tria);
-    FE_Q<patch_dim, spacedim> fe(std::max<unsigned int>(1, n_subdivisions));
-    dof_handler_patch.distribute_dofs(fe);
-
-    std::vector<types::global_dof_index>                             indices;
-    std::vector<Point<spacedim>>                                     points;
-    std::vector<std::pair<types::global_dof_index, Point<spacedim>>> points_all;
-
-    QGaussLobatto<patch_dim> quadrature_gl(fe.degree + 1);
-
-    std::vector<Point<patch_dim>> quadrature_points;
-    for (const auto i :
-         FETools::hierarchic_to_lexicographic_numbering<patch_dim>(fe.degree))
-      quadrature_points.push_back(quadrature_gl.point(i));
-    Quadrature<patch_dim> quadrature(quadrature_points);
-
-    FEValues<patch_dim, spacedim> fe_values(this->mapping,
-                                            fe,
-                                            quadrature,
-                                            update_quadrature_points);
-
-    std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
-
-    IndexSet index_set;
-    DoFTools::extract_locally_active_dofs(dof_handler_patch, index_set);
-    const auto partitioner =
-      std::make_shared<Utilities::MPI::Partitioner>(index_set, MPI_COMM_WORLD);
-
-    for (const auto &cell : dof_handler_patch.active_cell_iterators())
-      {
-        fe_values.reinit(cell);
-
-        points.insert(points.end(),
-                      fe_values.get_quadrature_points().begin(),
-                      fe_values.get_quadrature_points().end());
-
-        cell->get_dof_indices(dof_indices);
-
-        indices.insert(indices.end(), dof_indices.begin(), dof_indices.end());
-      }
-
-    std::sort(points_all.begin(),
-              points_all.end(),
-              [](const auto &a, const auto &b) { return a.first < b.first; });
-    points_all.erase(std::unique(points_all.begin(),
-                                 points_all.end(),
-                                 [](const auto &a, const auto &b) {
-                                   return a.first == b.first;
-                                 }),
-                     points_all.end());
-
-    for (const auto i : points_all)
-      {
-        indices.push_back(i.first);
-        points.push_back(i.second);
-      }
-
-    Utilities::MPI::RemotePointEvaluation<dim, spacedim> rpe;
-
     if (rpe.is_ready() == false)
-      rpe.reinit(points, *this->triangulation, mapping);
+      {
+        FE_Q<patch_dim, spacedim> fe(std::max<unsigned int>(1, n_subdivisions));
+        dof_handler_patch.distribute_dofs(fe);
+
+        std::vector<Point<spacedim>> points;
+        std::vector<std::pair<types::global_dof_index, Point<spacedim>>>
+          points_all;
+
+        QGaussLobatto<patch_dim> quadrature_gl(fe.degree + 1);
+
+        std::vector<Point<patch_dim>> quadrature_points;
+        for (const auto i :
+             FETools::hierarchic_to_lexicographic_numbering<patch_dim>(
+               fe.degree))
+          quadrature_points.push_back(quadrature_gl.point(i));
+        Quadrature<patch_dim> quadrature(quadrature_points);
+
+        FEValues<patch_dim, spacedim> fe_values(this->mapping,
+                                                fe,
+                                                quadrature,
+                                                update_quadrature_points);
+
+        std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
+
+        IndexSet index_set;
+        DoFTools::extract_locally_active_dofs(dof_handler_patch, index_set);
+        partitioner =
+          std::make_shared<Utilities::MPI::Partitioner>(index_set,
+                                                        MPI_COMM_WORLD);
+
+        for (const auto &cell : dof_handler_patch.active_cell_iterators())
+          {
+            fe_values.reinit(cell);
+
+            points.insert(points.end(),
+                          fe_values.get_quadrature_points().begin(),
+                          fe_values.get_quadrature_points().end());
+
+            cell->get_dof_indices(dof_indices);
+
+            indices.insert(indices.end(),
+                           dof_indices.begin(),
+                           dof_indices.end());
+          }
+
+        std::sort(points_all.begin(),
+                  points_all.end(),
+                  [](const auto &a, const auto &b) {
+                    return a.first < b.first;
+                  });
+        points_all.erase(std::unique(points_all.begin(),
+                                     points_all.end(),
+                                     [](const auto &a, const auto &b) {
+                                       return a.first == b.first;
+                                     }),
+                         points_all.end());
+
+        for (const auto i : points_all)
+          {
+            indices.push_back(i.first);
+            points.push_back(i.second);
+          }
+
+        rpe.reinit(points, *this->triangulation, mapping);
+      }
 
     std::vector<std::shared_ptr<LinearAlgebra::distributed::Vector<double>>>
       vectors;
@@ -145,7 +151,12 @@ protected:
 
 private:
   const Triangulation<patch_dim, spacedim> &tria;
+  DoFHandler<patch_dim, spacedim>           dof_handler_patch;
   const Mapping<patch_dim, spacedim> &      mapping;
+
+  Utilities::MPI::RemotePointEvaluation<dim, spacedim> rpe;
+  std::shared_ptr<Utilities::MPI::Partitioner>         partitioner;
+  std::vector<types::global_dof_index>                 indices;
 
   DataOut<patch_dim, spacedim> data_out;
 };
