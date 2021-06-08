@@ -25,7 +25,7 @@ class DataOutResample
   : public DataOut_DoFData<dim, patch_dim, spacedim, spacedim>
 {
 public:
-  DataOutResample(const Triangulation<patch_dim, spacedim> &tria,
+  DataOutResample(const Triangulation<patch_dim, spacedim> &patch_tria,
                   const Mapping<patch_dim, spacedim> &      patch_mapping);
 
   void
@@ -40,11 +40,10 @@ protected:
   get_patches() const override;
 
 private:
-  const Triangulation<patch_dim, spacedim> &tria;
+  const Triangulation<patch_dim, spacedim> &patch_tria;
   DoFHandler<patch_dim, spacedim>           patch_dof_handler;
   const Mapping<patch_dim, spacedim> &      patch_mapping;
   DataOut<patch_dim, spacedim>              patch_data_out;
-
 
   Utilities::MPI::RemotePointEvaluation<dim, spacedim> rpe;
   std::shared_ptr<Utilities::MPI::Partitioner>         partitioner;
@@ -56,10 +55,10 @@ private:
 
 template <int dim, int patch_dim, int spacedim>
 DataOutResample<dim, patch_dim, spacedim>::DataOutResample(
-  const Triangulation<patch_dim, spacedim> &tria,
+  const Triangulation<patch_dim, spacedim> &patch_tria,
   const Mapping<patch_dim, spacedim> &      patch_mapping)
-  : tria(tria)
-  , patch_dof_handler(tria)
+  : patch_tria(patch_tria)
+  , patch_dof_handler(patch_tria)
   , patch_mapping(patch_mapping)
 {}
 
