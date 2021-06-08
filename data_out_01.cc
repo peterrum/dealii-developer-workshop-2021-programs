@@ -40,14 +40,18 @@ protected:
   get_patches() const override;
 
 private:
-  const Triangulation<patch_dim, spacedim> &           tria;
-  DoFHandler<patch_dim, spacedim>                      dof_handler_patch;
-  const Mapping<patch_dim, spacedim> &                 patch_mapping;
+  const Triangulation<patch_dim, spacedim> &tria;
+  DoFHandler<patch_dim, spacedim>           dof_handler_patch;
+  const Mapping<patch_dim, spacedim> &      patch_mapping;
+
+
   Utilities::MPI::RemotePointEvaluation<dim, spacedim> rpe;
   std::shared_ptr<Utilities::MPI::Partitioner>         partitioner;
   std::vector<types::global_dof_index>                 indices;
   SmartPointer<const Mapping<dim, spacedim>>           mapping;
-  DataOut<patch_dim, spacedim>                         data_out;
+
+
+  DataOut<patch_dim, spacedim> data_out;
 };
 
 
@@ -107,7 +111,8 @@ DataOutResample<dim, patch_dim, spacedim>::update_mapping(
 
       cell->get_dof_indices(dof_indices);
 
-      indices.insert(indices.end(), dof_indices.begin(), dof_indices.end());
+      for (const auto i : dof_indices)
+        indices.push_back(partitioner->global_to_local(i));
     }
 
   std::sort(points_all.begin(),
@@ -208,6 +213,21 @@ public:
 };
 
 
+template <int dim, int spacedim>
+std::shared_ptr<const Utilities::MPI::Partitioner>
+create_partitioner(const DoFHandler<dim, spacedim> &dof_handler)
+{
+  IndexSet locally_relevant_dofs;
+
+  DoFTools::extract_locally_relevant_dofs(dof_handler, locally_relevant_dofs);
+
+  return std::make_shared<const Utilities::MPI::Partitioner>(
+    dof_handler.locally_owned_dofs(),
+    locally_relevant_dofs,
+    dof_handler.get_communicator());
+}
+
+
 
 int
 main(int argc, char **argv)
@@ -237,7 +257,8 @@ main(int argc, char **argv)
 
   MappingQ1<dim, spacedim> mapping;
 
-  LinearAlgebra::distributed::Vector<double> vector(dof_handler.n_dofs());
+  LinearAlgebra::distributed::Vector<double> vector(
+    create_partitioner(dof_handler));
 
   VectorTools::interpolate(mapping,
                            dof_handler,
