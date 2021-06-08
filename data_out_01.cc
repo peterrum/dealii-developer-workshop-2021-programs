@@ -104,14 +104,20 @@ public:
 
     data_out.attach_dof_handler(dof_handler_patch);
 
+    unsigned int counter = 0;
+
     for (const auto &i : this->dof_data)
       {
         const auto temp =
           dynamic_cast<internal::DataOutImplementation::
                          DataEntry<dim, spacedim, Vector<double>> *>(i.get());
 
+        const auto &dh = *temp->dof_handler;
+
+        AssertDimension(dh.get_fe_collection().n_components(), 1);
+
         const auto values =
-          VectorTools::point_values<1>(rpe, *temp->dof_handler, *temp->vector);
+          VectorTools::point_values<1>(rpe, dh, *temp->vector);
 
         vectors.emplace_back(
           std::make_shared<LinearAlgebra::distributed::Vector<double>>(
@@ -122,7 +128,7 @@ public:
 
         data_out.add_data_vector(
           *vectors.back(),
-          std::string(""),
+          std::string("temp_" + std::to_string(counter++)),
           DataOut_DoFData<patch_dim, patch_dim, spacedim, spacedim>::
             DataVectorType::type_dof_data);
       }
@@ -201,7 +207,8 @@ main(int argc, char **argv)
                            vector);
 
   DataOutResample<dim, patch_dim, spacedim> data_out(tria_slice, mapping_slice);
-  data_out.add_data_vector(dof_handler, vector, "solution");
+  data_out.add_data_vector(dof_handler, vector, "solution_0");
+  data_out.add_data_vector(dof_handler, vector, "solution_1");
   data_out.build_patches(mapping);
   data_out.write_vtu_with_pvtu_record("./", "data_out_01", 0, comm, 1, 1);
 }
