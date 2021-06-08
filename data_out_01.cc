@@ -149,9 +149,12 @@ DataOutResample<dim, patch_dim, spacedim>::build_patches()
 
   for (const auto &i : this->dof_data)
     {
-      const auto temp =
-        dynamic_cast<internal::DataOutImplementation::
-                       DataEntry<dim, spacedim, Vector<double>> *>(i.get());
+      const auto temp = dynamic_cast<
+        internal::DataOutImplementation::
+          DataEntry<dim, spacedim, LinearAlgebra::distributed::Vector<double>>
+            *>(i.get());
+
+      Assert(temp, ExcNotImplemented());
 
       const auto &dh = *temp->dof_handler;
 
@@ -234,7 +237,7 @@ main(int argc, char **argv)
 
   MappingQ1<dim, spacedim> mapping;
 
-  Vector<double> vector(dof_handler.n_dofs());
+  LinearAlgebra::distributed::Vector<double> vector(dof_handler.n_dofs());
 
   VectorTools::interpolate(mapping,
                            dof_handler,
