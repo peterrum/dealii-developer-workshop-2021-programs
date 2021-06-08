@@ -41,17 +41,15 @@ protected:
 
 private:
   const Triangulation<patch_dim, spacedim> &tria;
-  DoFHandler<patch_dim, spacedim>           dof_handler_patch;
+  DoFHandler<patch_dim, spacedim>           patch_dof_handler;
   const Mapping<patch_dim, spacedim> &      patch_mapping;
+  DataOut<patch_dim, spacedim>              patch_data_out;
 
 
   Utilities::MPI::RemotePointEvaluation<dim, spacedim> rpe;
   std::shared_ptr<Utilities::MPI::Partitioner>         partitioner;
   std::vector<types::global_dof_index>                 indices;
   SmartPointer<const Mapping<dim, spacedim>>           mapping;
-
-
-  DataOut<patch_dim, spacedim> data_out;
 };
 
 
@@ -61,7 +59,7 @@ DataOutResample<dim, patch_dim, spacedim>::DataOutResample(
   const Triangulation<patch_dim, spacedim> &tria,
   const Mapping<patch_dim, spacedim> &      patch_mapping)
   : tria(tria)
-  , dof_handler_patch(tria)
+  , patch_dof_handler(tria)
   , patch_mapping(patch_mapping)
 {}
 
@@ -76,7 +74,7 @@ DataOutResample<dim, patch_dim, spacedim>::update_mapping(
   this->mapping = &mapping;
 
   FE_Q<patch_dim, spacedim> fe(std::max<unsigned int>(1, n_subdivisions));
-  dof_handler_patch.distribute_dofs(fe);
+  patch_dof_handler.distribute_dofs(fe);
 
   std::vector<Point<spacedim>>                                     points;
   std::vector<std::pair<types::global_dof_index, Point<spacedim>>> points_all;
@@ -97,11 +95,11 @@ DataOutResample<dim, patch_dim, spacedim>::update_mapping(
   std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
 
   IndexSet index_set;
-  DoFTools::extract_locally_active_dofs(dof_handler_patch, index_set);
+  DoFTools::extract_locally_active_dofs(patch_dof_handler, index_set);
   partitioner =
     std::make_shared<Utilities::MPI::Partitioner>(index_set, MPI_COMM_WORLD);
 
-  for (const auto &cell : dof_handler_patch.active_cell_iterators())
+  for (const auto &cell : patch_dof_handler.active_cell_iterators())
     {
       fe_values.reinit(cell);
 
@@ -140,15 +138,15 @@ template <int dim, int patch_dim, int spacedim>
 void
 DataOutResample<dim, patch_dim, spacedim>::build_patches()
 {
-  data_out.clear();
+  patch_data_out.clear();
 
   if (rpe.is_ready() == false)
-    update_mapping(*this->mapping, dof_handler_patch.get_fe().degree);
+    update_mapping(*this->mapping, patch_dof_handler.get_fe().degree);
 
   std::vector<std::shared_ptr<LinearAlgebra::distributed::Vector<double>>>
     vectors;
 
-  data_out.attach_dof_handler(dof_handler_patch);
+  patch_data_out.attach_dof_handler(patch_dof_handler);
 
   unsigned int counter = 0;
 
@@ -159,10 +157,12 @@ DataOutResample<dim, patch_dim, spacedim>::build_patches()
           DataEntry<dim, spacedim, LinearAlgebra::distributed::Vector<double>>
             *>(i.get());
 
+      // TODO: enable different vectors
       Assert(temp, ExcNotImplemented());
 
       const auto &dh = *temp->dof_handler;
 
+      // TODO: enable more components
       AssertDimension(dh.get_fe_collection().n_components(), 1);
 
       const auto values = VectorTools::point_values<1>(rpe, dh, *temp->vector);
@@ -174,14 +174,15 @@ DataOutResample<dim, patch_dim, spacedim>::build_patches()
       for (unsigned int j = 0; j < values.size(); ++j)
         vectors.back()->local_element(indices[j]) = values[j];
 
-      data_out.add_data_vector(
+      patch_data_out.add_data_vector(
         *vectors.back(),
         std::string("temp_" + std::to_string(counter++)),
         DataOut_DoFData<patch_dim, patch_dim, spacedim, spacedim>::
           DataVectorType::type_dof_data);
     }
 
-  data_out.build_patches(patch_mapping, dof_handler_patch.get_fe().degree);
+  patch_data_out.build_patches(patch_mapping,
+                               patch_dof_handler.get_fe().degree);
 }
 
 
@@ -190,7 +191,7 @@ template <int dim, int patch_dim, int spacedim>
 const std::vector<::DataOutBase::Patch<patch_dim, spacedim>> &
 DataOutResample<dim, patch_dim, spacedim>::get_patches() const
 {
-  return data_out.get_patches();
+  return patch_data_out.get_patches();
 }
 
 
